@@ -2,9 +2,11 @@ import express, { Request, Response } from 'express';
 import { connectQueue } from './queue';
 import { v4 as uuidv4 } from 'uuid';
 import yahooFinance from 'yahoo-finance2';
+import cors from "cors";
 
 const app = express();
 app.use(express.json());
+app.use(cors())
 const PORT = 3000;
 
 let channel: any;

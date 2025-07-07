@@ -161,7 +161,7 @@ Give me a concise, fact-based explanation in 2-3 sentences.
             }
             const errorResponse = {
                 correlationId,
-                strategy: 'GEMINI_AI',
+                strategy: 'Geo-politics + Social media sentiment',
                 stockSymbol,
                 decision: 'ERROR',
                 error: err.response ? err.response.data : err.message || 'Unknown error'
