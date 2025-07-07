@@ -18,6 +18,13 @@ async function startRegressionServer() {
     await channel.assertQueue(requestQueue, { durable: true });
     await channel.assertQueue(responseQueue, { durable: true });
 
+    // strategy 2 queues
+    await channel.assertQueue('st2_queue', { durable: true });
+    await channel.assertQueue('mean_reversion_queue', { durable: true });
+
+    // master_server queue
+    await channel.assertQueue('master_response_aggregator_queue', { durable: true });
+
     console.log('📊 Regression Server is waiting for messages...');
 
     channel.consume(requestQueue, async (msg) => {
@@ -37,24 +44,32 @@ async function startRegressionServer() {
             return;
         }
 
-        const { stockSymbol, startDate, endDate, correlationId } = parsedMsg;
+        const { stockSymbol, startDate, endDate, correlationId, yahoo_data } = parsedMsg;
         console.log(`📥 Regression request received for ${stockSymbol}`);
+        console.log('Correlation ID:', correlationId);
+        console.log('Start Date:', startDate);
+        console.log('End Date:', endDate);
+
+        // 🚫 Abort if dates are unspecified
+        if (!startDate || !endDate) {
+            console.error('❌ Start date or end date is unspecified. Aborting processing.');
+            channel.ack(msg);
+            return;
+        }
 
         try {
-            const queryOptions = { period1: startDate, period2: endDate, interval: '1d' as '1d' };
-            const result = await yahooFinance.historical(stockSymbol, queryOptions) as any[];
-
+            const result = yahoo_data;
             if (!result || result.length < 3) throw new Error('Insufficient valid data (Need at least 3 data points)');
 
-            const prices = result.map(entry => entry.close).filter((price: number | null) => price !== null);
+            const prices = result.map((entry: any) => entry.close).filter((price: number | null): price is number => price !== null);
             if (prices.length < 3) throw new Error('Insufficient valid price data');
 
             const days = Array.from({ length: prices.length }, (_, i) => i + 1);
 
-            // Normalization (Min-Max Scaling)
+            // Normalization
             const minPrice = Math.min(...prices);
             const maxPrice = Math.max(...prices);
-            const scaledPrices = prices.map(p => (p - minPrice) / (maxPrice - minPrice));
+            const scaledPrices = prices.map((p: any) => (p - minPrice) / (maxPrice - minPrice));
             const maxDay = Math.max(...days);
             const scaledDays = days.map(d => d / maxDay);
 
@@ -77,32 +92,42 @@ async function startRegressionServer() {
 
             console.log(`📈 Predicted price for ${stockSymbol} on next day: $${predictedPrice.toFixed(2)}`);
 
-            const actual_rate = prices[prices.length - 1];
-            const bought_day_price = prices[0];
-            const predicted_profit = predictedPrice - bought_day_price;
-            const actual_profit = actual_rate - bought_day_price;
-            const error_percentage = Math.abs(predicted_profit - actual_profit) / Math.abs(actual_profit) * 100;
-            console.log(`💰 Predicted Profit: $${predicted_profit.toFixed(2)}, Actual Profit: $${actual_profit.toFixed(2)}, Error: ${error_percentage}`);
-
-
-
-            const response = JSON.stringify({
+            const responsePayload = {
                 correlationId,
                 stockSymbol,
                 predictedPrice: predictedPrice.toFixed(2),
-                actualRate: actual_rate.toFixed(2),
-                boughtDayPrice: bought_day_price.toFixed(2),
-                boughtDayDate: result[0].date.toISOString().split('T')[0],
-                predictedDayDate: new Date(result[result.length - 1].date.getTime() + 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+                boughtDayPrice: prices[0].toFixed(2),
+                boughtDayDate: result[0].date,
+                predictedDayDate: result[result.length - 1].date,
                 quantity: parsedMsg.quantity,
-                predictedProfit: predicted_profit.toFixed(2),
-                actualProfit: actual_profit.toFixed(2),
-                errorPercentage: error_percentage.toFixed(2),
-                Task: 'STRATEGY'
 
+                Task: 'STRATEGY',
+                yahoo_data: result
+            };
+
+            console.log('--- Response to be sent ---');
+            console.log(responsePayload);
+
+            const response = JSON.stringify(responsePayload);
+
+            // Send to strategy 1 queue
+            channel.sendToQueue('task_queue', Buffer.from(response), { persistent: true });
+
+            // Send to strategy 2 queue
+            channel.sendToQueue('st2_queue', Buffer.from(response), { persistent: true });
+
+            //send to mean reversion strategy queue
+            channel.sendToQueue('mean_reversion_queue', Buffer.from(response), {
+                persistent: true
             });
 
-            channel.sendToQueue('task_queue', Buffer.from(response), { persistent: true });
+            // Send to master server queue
+            channel.sendToQueue('master_response_aggregator_queue', Buffer.from(response), {
+                persistent: true
+            });
+
+            console.log(`✅ Regression completed for ${stockSymbol}, response sent to strategy queues.`);
+
         } catch (err: any) {
             console.error(`❌ Error processing regression for ${stockSymbol}:`, err.message);
 
