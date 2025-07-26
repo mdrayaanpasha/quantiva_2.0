@@ -15,14 +15,13 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
 let channel: Channel;
 
-const connectQueue = async (): Promise<any> => {
+const connectQueue = async (): Promise<{ connection: Connection; channel: Channel }> => {
     try {
-        const connection = await amqp.connect('amqp://localhost');
-        const channel = await connection.createChannel();
+        const connection: any = await amqp.connect('amqp://localhost');
+        const ch = await connection.createChannel();
         console.log('✅ Connected to RabbitMQ');
-
         console.log(`🔑 GEMINI API Key: ${GEMINI_API_KEY ? 'Loaded' : 'Undefined - Check .env file!'}`);
-        return { connection, channel };
+        return { connection, channel: ch };
     } catch (err) {
         console.error('❌ Failed to connect to RabbitMQ', err);
         process.exit(1);
@@ -31,30 +30,25 @@ const connectQueue = async (): Promise<any> => {
 
 const calculateMovingAverage = (prices: number[], windowSize: number): number[] => {
     const movingAverages: number[] = [];
-
     for (let i = 0; i < prices.length; i++) {
         if (i < windowSize - 1) {
             movingAverages.push(NaN);
             continue;
         }
-
         const window = prices.slice(i - windowSize + 1, i + 1);
         const average = window.reduce((sum, price) => sum + price, 0) / window.length;
-
         movingAverages.push(average);
     }
-
     return movingAverages;
 };
 
-const shouldBuy = (prices: number[], shortWindow: number, longWindow: number): { decision: 'BUY' | 'NO_BUY', reason: string } => {
+const shouldBuy = (prices: number[], shortWindow: number, longWindow: number): { decision: 'BUY' | 'NO_BUY'; reason: string } => {
     const shortMA = calculateMovingAverage(prices, shortWindow);
     const longMA = calculateMovingAverage(prices, longWindow);
 
     const lastIndex = prices.length - 1;
 
     if (lastIndex < longWindow) {
-        console.log('⚠️ Not enough data for long moving average.');
         return {
             decision: 'NO_BUY',
             reason: 'Not enough historical data to compute reliable long-term moving average.'
@@ -71,12 +65,56 @@ const shouldBuy = (prices: number[], shortWindow: number, longWindow: number): {
             decision: 'BUY',
             reason: `Short-term average (${currentShortMA.toFixed(2)}) just crossed above long-term average (${currentLongMA.toFixed(2)}). Indicates potential uptrend.`
         };
-    } else {
-        return {
-            decision: 'NO_BUY',
-            reason: `Short-term average (${currentShortMA.toFixed(2)}) is below or not crossing long-term average (${currentLongMA.toFixed(2)}). No clear buy signal.`
-        };
     }
+
+    return {
+        decision: 'NO_BUY',
+        reason: `Short-term average (${currentShortMA.toFixed(2)}) is below or not crossing long-term average (${currentLongMA.toFixed(2)}). No clear buy signal.`
+    };
+};
+
+const RespondToPortfolio = async (companiesYahooData: any[], correlationId: string) => {
+
+    if (!Array.isArray(companiesYahooData) || companiesYahooData.length === 0) {
+        console.error('❌ Invalid or empty portfolio data.');
+        return;
+    }
+
+    const results = companiesYahooData.map((company) => {
+        const prices: number[] = company.yahooPrices;
+
+        if (!prices || prices.length < 5) {
+            return {
+                stockSymbol: company.stockSymbol,
+                decision: 'NO_BUY',
+                reason: 'Insufficient data for moving average calculation.'
+            };
+        }
+
+        const { decision, reason } = shouldBuy(prices, 3, 5);
+        return { stockSymbol: company.stockSymbol, decision, reason };
+    });
+
+    const totalBuy = results.filter(r => r.decision === 'BUY').length;
+    const total = results.length;
+
+    const finalDecision = totalBuy >= Math.ceil(total / 2) ? 'BUY' : 'NO_BUY';
+    const aggregatedReason = `BUY signals for ${totalBuy}/${total} stocks. Portfolio decision: ${finalDecision}.`;
+
+    const response = {
+        correlationId, // ✅ add this
+        strategy: 'AVG_CROSSOVER_PORTFOLIO',
+        decision: finalDecision,
+        details: results,
+        reason: aggregatedReason,
+        confidence: 'Portfolio-based crossover analysis'
+    };
+
+    channel.sendToQueue('master_response_aggregator_queue', Buffer.from(JSON.stringify(response)), {
+        persistent: true,
+    });
+
+    console.log(`✅ Portfolio strategy decision sent: ${finalDecision} | ${aggregatedReason}`);
 };
 
 const Starter = async () => {
@@ -94,53 +132,44 @@ const Starter = async () => {
         try {
             const parsedMsg = JSON.parse(msg.content.toString());
 
-            if (parsedMsg.Task !== 'STRATEGY') {
-                console.log(`❌ Invalid Task: ${parsedMsg.Task}. Expected 'STRATEGY'.`);
-                channel.ack(msg);
-                return;
+            if (parsedMsg.Task === 'PORTFOLIO_STRATERGY') {
+                console.log("📦 Received portfolio strategy request");
+                const { companiesYahooData, correlationId } = parsedMsg;
+                await RespondToPortfolio(companiesYahooData, correlationId);
+            } else {
+                const {
+                    correlationId,
+                    stockSymbol,
+                    yahoo_data
+                } = parsedMsg;
+
+                console.log(`📥 AVG CROSSOVER STRATEGY request received for ${stockSymbol}`);
+
+                if (!yahoo_data || yahoo_data.length === 0) {
+                    console.error('❌ Yahoo data is missing.');
+                    channel.ack(msg);
+                    return;
+                }
+
+                const prices = yahoo_data.map((item: any) => item.close);
+                const { decision, reason } = shouldBuy(prices, 3, 5);
+
+                const response = {
+                    correlationId,
+                    strategy: 'AVG_CROSSOVER',
+                    stockSymbol,
+                    decision,
+                    confidence: 'Price-based crossover',
+                    reason
+                };
+
+                channel.sendToQueue('master_response_aggregator_queue', Buffer.from(JSON.stringify(response)), {
+                    persistent: true
+                });
+
+                console.log(`✅ Sent decision: ${decision} for ${stockSymbol} | Reason: ${reason}`);
             }
-
-            const {
-                correlationId,
-                stockSymbol,
-                quantity,
-                buyPrice,
-                boughtDayPrice,
-                predictedProfit,
-                actualProfit,
-                errorPercentage,
-                BoughtDayDate,
-                PredictedDayDate,
-                yahoo_data
-            } = parsedMsg;
-
-            console.log(`📥 AVG CROSSOVER STRATEGY request received for ${stockSymbol}`);
-
-            if (!yahoo_data || yahoo_data.length === 0) {
-                console.error('❌ Yahoo data is missing.');
-                channel.ack(msg);
-                return;
-            }
-
-            const prices = yahoo_data.map((item: any) => item.close);
-
-            const { decision, reason } = shouldBuy(prices, 3, 5);
-
-            const response = {
-                correlationId,
-                strategy: 'AVG_CROSSOVER',
-                stockSymbol,
-                decision,
-                confidence: 'Price-based crossover',
-                reason // Included reasoning here
-            };
-
-            // Send response to master server queue
-            channel.sendToQueue('master_response_aggregator_queue', Buffer.from(JSON.stringify(response)), { persistent: true });
-
-            console.log(`✅ Sent decision: ${decision} for ${stockSymbol} | Reason: ${reason}`);
-
-        } catch (err: any) {
+        } catch (err) {
             console.error('❌ Error processing message:', err);
             channel.nack(msg, false, false);
         } finally {

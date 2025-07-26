@@ -40,6 +40,8 @@ function Auth() {
                 setPassword('');
                 setIsRegistering(false);
                 localStorage.setItem("QUANT-TOKEN", data.token);
+                window.location.href = "./portfolio";
+
             } else {
                 toast.error(data.error || 'Registration failed. Try again!', { id: registerToastId });
             }
@@ -80,6 +82,7 @@ function Auth() {
                 setPassword('');
                 console.log('User logged in:', data); // Log user data
                 localStorage.setItem("QUANT-TOKEN", data.token);
+                window.location.href = "./portfolio";
 
             } else {
                 toast.error(data.error || 'Login failed. Invalid credentials.', { id: loginToastId });

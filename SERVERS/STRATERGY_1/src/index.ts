@@ -23,6 +23,93 @@ const connectQueue = async () => {
 
 let channel: any;
 
+const doStuff = async (msg: any) => {
+    const { companies, correlationId } = msg;
+
+    if (!GEMINI_API_KEY) {
+        throw new Error('GEMINI_API_KEY is not defined. Please set it in your .env file.');
+    }
+
+    const companyList = companies.map((c: any) => `${c.stockSymbol} from ${c.from} to present`).join(', ');
+
+    const decisionPrompt = `
+You are a stock trading assistant specializing in momentum strategies.
+
+I am currently considering whether I should buy more shares in the following companies: [${companyList}]
+
+For each company, consider:
+- Geopolitical events
+- Sentiment on Reddit
+- Sentiment on X (formerly Twitter)
+
+Rate the current buying potential for each stock as one of the following:
+- "STRONG" (strong buy)
+- "AVERAGE" (neutral or moderate confidence)
+- "WEAK" (not advisable to buy now)
+
+Format your response exactly like:
+- SYMBOL_1: STRONG/AVERAGE/WEAK
+- SYMBOL_2: STRONG/AVERAGE/WEAK
+- ...
+
+Do not include any explanations, summaries, or extra content.
+`.trim();
+
+    const decisionRes = await axios.post(
+        "https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateContent",
+        {
+            contents: [{ parts: [{ text: decisionPrompt }] }],
+            generationConfig: { temperature: 0, maxOutputTokens: 50 },
+        },
+        { headers: { "Content-Type": "application/json" }, params: { key: GEMINI_API_KEY } }
+    );
+
+    const responseText = decisionRes.data.candidates[0]?.content?.parts[0]?.text?.trim().toUpperCase() || '';
+    console.log(`📈 Gemini raw decision response:\n${responseText}`);
+
+
+
+
+
+    let combinedReasonText = 'No reasoning provided.';
+
+
+
+    const reasoningPrompt = `
+I bought shares in the following companies. Help me understand why the decisions were good or bad, based on geopolitical events and social sentiment:
+
+${responseText}
+for dates refer to this: ${companyList}
+Specifically, tell me:
+- What significant geopolitical events affected these stocks.
+- How sentiment on Reddit and X evolved during this period.
+
+Give concise 2-3 sentence reasoning **for each stock**, labelled clearly.
+
+
+`.trim();
+
+    const reasonRes = await axios.post(
+        "https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateContent",
+        {
+            contents: [{ parts: [{ text: reasoningPrompt }] }],
+            generationConfig: { temperature: 0.4, maxOutputTokens: 100 },
+        },
+        { headers: { "Content-Type": "application/json" }, params: { key: GEMINI_API_KEY } }
+    );
+
+    combinedReasonText = reasonRes.data.candidates[0]?.content?.parts[0]?.text?.trim() || combinedReasonText;
+    console.log(`🧠 Combined Gemini reasoning:\n${combinedReasonText}`);
+
+
+
+
+
+
+    return { score: responseText, reasoning: combinedReasonText, Type: 'PORTFOLIO_GEO_POLITICS', correlationId };
+};
+
+
 const Starter = async () => {
     const queueConnection = await connectQueue();
     channel = queueConnection.channel;
@@ -37,6 +124,23 @@ const Starter = async () => {
         if (!msg) return;
 
         const parsedMsg = JSON.parse(msg.content.toString());
+
+        if (parsedMsg.Task === 'PORTFOLIO_STRATERGY') {
+            console.log("message recived here")
+            const response = await doStuff(parsedMsg);
+            console.log('Response to be sent:', response);
+            channel.sendToQueue("master_response_aggregator_queue", Buffer.from(JSON.stringify({
+                Type: "PORTFOLIO_GEO_POLITICS", // ✅ FIX THIS
+                data: response
+            })), {
+                correlationId: msg.properties.correlationId
+            });
+
+            //send to master server queue
+            channel.sendToQueue('master_response_aggregator_queue', Buffer.from(JSON.stringify(response)), { persistent: true });
+            // console.log(`✅ Sent decision: ${decision} for ${stockSymbol} | Reason: ${reasonText}`);
+
+        }
 
         if (parsedMsg.Task !== 'STRATEGY') {
             channel.ack(msg);

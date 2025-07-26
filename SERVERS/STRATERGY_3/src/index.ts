@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import express from 'express';
+import express, { json } from 'express';
 import amqp, { Channel } from 'amqplib';
 
 const app = express();
@@ -38,6 +38,13 @@ const shouldBuy = (prices: number[], thresholdPercent: number = 2): { decision: 
     const meanPrice = calculateMean(prices);
     const currentPrice = prices[prices.length - 1];
 
+    if (isNaN(meanPrice) || typeof currentPrice !== 'number') {
+        return {
+            decision: 'NO_BUY',
+            reason: 'Insufficient or invalid price data to make a decision.'
+        };
+    }
+
     const deviation = ((meanPrice - currentPrice) / meanPrice) * 100;
 
     if (deviation >= thresholdPercent) {
@@ -61,30 +68,58 @@ const Starter = async () => {
     await channel.assertQueue('master_response_aggregator_queue', { durable: true });
 
     console.log('🚀 MEAN REVERSION STRATEGY SERVER is waiting for messages...');
-
     channel.consume('mean_reversion_queue', async (msg) => {
         if (!msg) return;
 
         try {
             const parsedMsg = JSON.parse(msg.content.toString());
 
-            if (parsedMsg.Task !== 'STRATEGY') {
-                console.log(`❌ Invalid Task: ${parsedMsg.Task}. Expected 'STRATEGY'.`);
-                channel.ack(msg);
-                return;
+            if (parsedMsg.Task === 'PORTFOLIO_MR') {
+                if (!parsedMsg || !parsedMsg.correlationId) {
+                    console.error("❌ Invalid or missing correlationId. Rejecting message.");
+                    channel.nack(msg, false, false);
+                    return;
+                }
+
+                const companies = parsedMsg.companiesYahooData;
+                let resp: any = [];
+
+                for (const company of companies) {
+                    const { stockSymbol, yahooPrices } = company;
+
+                    if (!Array.isArray(yahooPrices) || yahooPrices.length === 0) {
+                        console.warn(`⚠️ Skipping ${stockSymbol} due to empty or invalid price array.`);
+                        continue;
+                    }
+
+                    const { decision, reason } = shouldBuy(yahooPrices);
+                    resp.push({ stockSymbol, decision, reason });
+                    console.log(`📊 ${stockSymbol}: ${decision} – ${reason}`);
+                }
+
+                const response = {
+                    correlationId: parsedMsg.correlationId,
+                    strategy: 'MEAN_REVERSION',
+                    data: resp,
+                    confidence: 'Price deviation from mean'
+                };
+
+                channel.sendToQueue(msg.properties.replyTo, Buffer.from(JSON.stringify(response)), {
+                    persistent: true,
+                    correlationId: response.correlationId
+                });
+
+
+
+                channel.ack(msg); // ✅ Ack here
+                return; // ←⛑ ABSOLUTELY NECESSARY
             }
+
+            // 🚨 Anything below this is for NON-PORTFOLIO_MR tasks
 
             const {
                 correlationId,
                 stockSymbol,
-                quantity,
-                buyPrice,
-                boughtDayPrice,
-                predictedProfit,
-                actualProfit,
-                errorPercentage,
-                BoughtDayDate,
-                PredictedDayDate,
                 yahoo_data
             } = parsedMsg;
 
@@ -97,7 +132,6 @@ const Starter = async () => {
             }
 
             const prices = yahoo_data.map((item: any) => item.close);
-
             const { decision, reason } = shouldBuy(prices);
 
             const response = {
@@ -106,20 +140,22 @@ const Starter = async () => {
                 stockSymbol,
                 decision,
                 confidence: 'Price deviation from mean',
-                reason // 
+                reason
             };
 
-            // Send response to response_queue
-            channel.sendToQueue('master_response_aggregator_queue', Buffer.from(JSON.stringify(response)), { persistent: true });
+            channel.sendToQueue('master_response_aggregator_queue', Buffer.from(JSON.stringify(response)), {
+                persistent: true
+            });
+
             console.log(`✅ Sent decision: ${decision} for ${stockSymbol} | Reason: ${reason}`);
+            channel.ack(msg); // ✅ single ack here
 
         } catch (err: any) {
             console.error('❌ Error processing message:', err);
             channel.nack(msg, false, false);
-        } finally {
-            channel.ack(msg);
         }
     }, { noAck: false });
+
 };
 
 Starter().catch((err) => {
