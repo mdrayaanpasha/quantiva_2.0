@@ -27,3 +27,10 @@ model Portfolio {
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
+
+model cache {
+  id        String   @id
+  data      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

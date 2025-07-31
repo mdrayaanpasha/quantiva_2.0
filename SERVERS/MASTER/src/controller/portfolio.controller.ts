@@ -3,6 +3,8 @@ import { PrismaClient } from '@prisma/client';
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
 import axios from "axios";
+import { createClient } from 'redis';
+
 
 dotenv.config();
 
@@ -127,6 +129,10 @@ export class PortfolioController {
         if (!userId) return res.status(403).json({ error: "Invalid or missing token." });
 
         try {
+
+            // check in cache. 
+
+
             const portfolios = await prisma.portfolio.findMany({ where: { userId } });
             if (portfolios.length === 0) return res.status(404).json({ error: "No portfolios found." });
 
@@ -136,6 +142,15 @@ export class PortfolioController {
                 startDate: p.investment_start_date.toISOString().split("T")[0],
                 endDate: today
             }));
+
+            const companyNames = companiesData.map(c => c.stockSymbol);
+            const key = `portfolio:${userId}:${companyNames.join(',')}`;
+
+            const cachedData = await prisma.cache.findUnique({ where: { id: key } });
+            if (cachedData) {
+                console.log("🔄 Cache hit for portfolio data.");
+                return res.status(200).json({ strategies: JSON.parse(cachedData.data) });
+            }
 
             const strategyEndpoints = [
                 { name: "Mean Reversion", url: "http://localhost:3000/strategy/mean-reversion", key: "companiesData" },
@@ -164,6 +179,16 @@ export class PortfolioController {
                     console.error(`❌ ${result.strategy}:`, result.error);
                 }
             });
+
+            await prisma.cache.create({
+                data: {
+                    id: key,
+                    data: JSON.stringify(results),
+                    createdAt: new Date(),
+                    updatedAt: new Date()
+                }
+            });
+
 
             return res.status(200).json({ strategies: results });
 

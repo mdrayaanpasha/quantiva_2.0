@@ -1,203 +1,156 @@
 import React, { useState } from 'react';
 import { Toaster, toast } from 'react-hot-toast';
+import { useNavigate } from 'react-router-dom';
+import Cover from '../assets/bg.png'; // Make sure this path is correct
+import { User, Mail, KeyRound } from 'lucide-react'; // Import icons
 
-function Auth() {
-    const [isRegistering, setIsRegistering] = useState(true); // true for register, false for login
+// Define props for the input field to avoid using `any`
+interface InputFieldProps {
+    id: string;
+    type: string;
+    placeholder: string;
+    value: string;
+    onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+    icon: React.ElementType;
+}
+
+// Reusable input component for a cleaner form
+const InputField: React.FC<InputFieldProps> = ({ id, type, placeholder, value, onChange, icon: Icon }) => (
+    <div className="relative">
+        <span className="absolute inset-y-0 left-0 flex items-center pl-4">
+            <Icon className="h-5 w-5 text-zinc-500" />
+        </span>
+        <input
+            id={id}
+            type={type}
+            className="w-full pl-12 pr-4 py-3 bg-black/20 text-white border border-white/20 rounded-lg placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-amber-500 transition-colors"
+            placeholder={placeholder}
+            value={value}
+            onChange={onChange}
+            required
+            autoComplete="off"
+        />
+    </div>
+);
+
+
+const Auth = () => {
+    const [isRegistering, setIsRegistering] = useState(false);
     const [name, setName] = useState('');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
+    const navigate = useNavigate();
 
-    // Base URL for your backend API
-    const API_BASE_URL = 'http://localhost:3000'; // This is correct as the base, we'll add the prefix in fetch calls
+    const API_BASE_URL = 'http://localhost:3000';
 
-
-    /**
-     * Handles the registration form submission.
-     * @param {Event} e - The form submission event.
-     */
-    const handleRegister = async (e: any) => {
-        e.preventDefault();
-        setLoading(true);
-        const registerToastId = toast.loading('Registering user...');
-
-        try {
-            const response = await fetch(`${API_BASE_URL}/api/userAuth/register`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json', // Corrected typo here!
-                },
-                body: JSON.stringify({ name, email, password }),
-            });
-
-            const data = await response.json();
-
-            if (response.ok) {
-                toast.success('Registration successful! Please log in.', { id: registerToastId });
-                // Clear form fields and switch to login
-                setName('');
-                setEmail('');
-                setPassword('');
-                setIsRegistering(false);
-                localStorage.setItem("QUANT-TOKEN", data.token);
-                window.location.href = "./portfolio";
-
-            } else {
-                toast.error(data.error || 'Registration failed. Try again!', { id: registerToastId });
-            }
-        } catch (error) {
-            console.error('Network error during registration:', error);
-            toast.error('Network error. Check your connection.', { id: registerToastId });
-        } finally {
-            setLoading(false);
-        }
+    // **BUG FIX**: This function clears the form fields when toggling
+    const handleToggleForm = () => {
+        setName('');
+        setEmail('');
+        setPassword('');
+        setIsRegistering(prevState => !prevState);
     };
 
-    /**
-     * Handles the login form submission.
-     * @param {Event} e - The form submission event.
-     */
-    const handleLogin = async (e: any) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setLoading(true);
-        const loginToastId = toast.loading('Logging in...');
+
+        const endpoint = isRegistering ? 'register' : 'login';
+        const payload = isRegistering ? { name, email, password } : { email, password };
+        const toastId = toast.loading(isRegistering ? 'Creating your profile...' : 'Authenticating...');
 
         try {
-            // Corrected the path to include /api/userAuth/
-            const response = await fetch(`${API_BASE_URL}/api/userAuth/login`, {
+            const response = await fetch(`${API_BASE_URL}/api/userAuth/${endpoint}`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ email, password }),
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
             });
-
             const data = await response.json();
 
             if (response.ok) {
-                toast.success('Login successful! Welcome back.', { id: loginToastId });
-                // In a real app, you'd store the token (if any) here and redirect.
-                // For now, just clear fields:
-                setEmail('');
-                setPassword('');
-                console.log('User logged in:', data); // Log user data
+                const successMessage = isRegistering ? 'Welcome to the pack. Logging you in.' : 'Welcome back.';
+                toast.success(successMessage, { id: toastId });
                 localStorage.setItem("QUANT-TOKEN", data.token);
-                window.location.href = "./portfolio";
-
+                setTimeout(() => window.location.href = "/portfolio-hub", 1000); // Redirect after a short delay
             } else {
-                toast.error(data.error || 'Login failed. Invalid credentials.', { id: loginToastId });
+                toast.error(data.error || 'An unexpected error occurred.', { id: toastId });
             }
         } catch (error) {
-            console.error('Network error during login:', error);
-            toast.error('Network error. Check your connection.', { id: loginToastId });
+            toast.error('Network error. Please check your connection.', { id: toastId });
         } finally {
             setLoading(false);
         }
     };
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-gray-100 p-4">
-            <Toaster position="top-center" reverseOrder={false} />
-            <div className="bg-white p-8 md:p-10 rounded-xl shadow-lg w-full max-w-md border border-gray-200">
-                <h2 className="text-3xl font-extrabold text-center text-gray-800 mb-8">
-                    {isRegistering ? 'Join Us! 🚀' : 'Welcome Back! 👋'}
-                </h2>
+        <div className="min-h-screen flex items-center justify-center bg-black p-4 font-sans">
+            {/* Toaster with dark theme */}
+            <Toaster
+                position="top-center"
+                toastOptions={{
+                    style: {
+                        background: '#18181b', // zinc-900
+                        color: '#e4e4e7', // zinc-200
+                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                    },
+                    success: {
+                        iconTheme: { primary: '#f59e0b', secondary: 'black' },
+                    },
+                    error: {
+                        iconTheme: { primary: '#ef4444', secondary: 'white' },
+                    },
+                }}
+            />
 
-                {isRegistering ? (
-                    // Registration Form
-                    <form onSubmit={handleRegister}>
-                        <div className="mb-5">
-                            <label htmlFor="name" className="block text-gray-700 text-sm font-semibold mb-2">Name</label>
-                            <input
-                                type="text"
-                                id="name"
-                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 ease-in-out placeholder-gray-400 text-gray-800"
-                                placeholder="Your Name"
-                                value={name}
-                                onChange={(e: any) => setName(e.target.value)}
-                                required
-                            />
-                        </div>
-                        <div className="mb-5">
-                            <label htmlFor="regEmail" className="block text-gray-700 text-sm font-semibold mb-2">Email</label>
-                            <input
-                                type="email"
-                                id="regEmail"
-                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 ease-in-out placeholder-gray-400 text-gray-800"
-                                placeholder="your@example.com"
-                                value={email}
-                                onChange={(e: any) => setEmail(e.target.value)}
-                                required
-                            />
-                        </div>
-                        <div className="mb-6">
-                            <label htmlFor="regPassword" className="block text-gray-700 text-sm font-semibold mb-2">Password</label>
-                            <input
-                                type="password"
-                                id="regPassword"
-                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 ease-in-out placeholder-gray-400 text-gray-800"
-                                placeholder="********"
-                                value={password}
-                                onChange={(e: any) => setPassword(e.target.value)}
-                                required
-                            />
-                        </div>
+            {/* Background Image & Gradient */}
+            <div className="fixed inset-0 w-full h-full">
+                <div className="w-full h-full bg-cover bg-center" style={{ backgroundImage: `url(${Cover})` }} />
+                <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/90 to-black"></div>
+            </div>
+
+            <div className="relative z-10 w-full max-w-md">
+                <div className="text-center mb-8">
+                    <h1 className="text-2xl font-bold text-amber-400 cursor-pointer" onClick={() => navigate('/')}>
+                        The Wolf
+                    </h1>
+                </div>
+                <div className="bg-zinc-900/40 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl shadow-black/20 p-8">
+                    <h2 className="text-3xl font-extrabold text-center text-white mb-2">
+                        {isRegistering ? 'Join The Pack' : 'The Wolf Returns'}
+                    </h2>
+                    <p className="text-zinc-400 text-center mb-8">
+                        {isRegistering ? 'Create your account to gain your edge.' : 'Enter the den to continue your hunt.'}
+                    </p>
+
+                    <form onSubmit={handleSubmit} className="space-y-6">
+                        {isRegistering && (
+                            <InputField id="name" type="text" placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} icon={User} />
+                        )}
+                        <InputField id="email" type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} icon={Mail} />
+                        <InputField id="password" type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} icon={KeyRound} />
+
                         <button
                             type="submit"
-                            className="w-full bg-indigo-600 text-white py-3 rounded-lg font-bold text-lg hover:bg-indigo-700 transition-colors duration-200 ease-in-out shadow-md hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="w-full bg-amber-500 text-black py-3 rounded-lg font-bold text-base hover:bg-amber-400 transition-all duration-300 shadow-lg shadow-amber-500/20 hover:shadow-amber-400/30 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 focus:ring-offset-black disabled:bg-zinc-600 disabled:text-zinc-400 disabled:cursor-not-allowed"
                             disabled={loading}
                         >
-                            {loading ? 'Registering...' : 'Register'}
+                            {loading ? 'Processing...' : (isRegistering ? 'Claim Your Seat' : 'Enter The Den')}
                         </button>
                     </form>
-                ) : (
-                    // Login Form
-                    <form onSubmit={handleLogin}>
-                        <div className="mb-5">
-                            <label htmlFor="loginEmail" className="block text-gray-700 text-sm font-semibold mb-2">Email</label>
-                            <input
-                                type="email"
-                                id="loginEmail"
-                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 ease-in-out placeholder-gray-400 text-gray-800"
-                                placeholder="your@example.com"
-                                value={email}
-                                onChange={(e: any) => setEmail(e.target.value)}
-                                required
-                            />
-                        </div>
-                        <div className="mb-6">
-                            <label htmlFor="loginPassword" className="block text-gray-700 text-sm font-semibold mb-2">Password</label>
-                            <input
-                                type="password"
-                                id="loginPassword"
-                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 ease-in-out placeholder-gray-400 text-gray-800"
-                                placeholder="********"
-                                value={password}
-                                onChange={(e: any) => setPassword(e.target.value)}
-                                required
-                            />
-                        </div>
-                        <button
-                            type="submit"
-                            className="w-full bg-indigo-600 text-white py-3 rounded-lg font-bold text-lg hover:bg-indigo-700 transition-colors duration-200 ease-in-out shadow-md hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                            disabled={loading}
-                        >
-                            {loading ? 'Logging In...' : 'Log In'}
-                        </button>
-                    </form>
-                )}
 
-                <div className="mt-6 text-center">
-                    <button
-                        onClick={() => setIsRegistering(!isRegistering)}
-                        className="text-indigo-600 hover:text-indigo-800 font-medium text-base transition-colors duration-200 ease-in-out focus:outline-none"
-                    >
-                        {isRegistering ? 'Already have an account? Login here!' : 'Don\'t have an account? Register here!'}
-                    </button>
+                    <div className="mt-6 text-center">
+                        <button
+                            onClick={handleToggleForm} // Use the new handler here
+                            className="text-zinc-400 hover:text-amber-400 font-medium text-sm transition-colors"
+                        >
+                            {isRegistering ? 'Already in the pack? Enter the den.' : "New to the hunt? Join the pack."}
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
     );
-}
+};
 
 export default Auth;

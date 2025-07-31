@@ -74,26 +74,33 @@ Do not include any explanations, summaries, or extra content.
     let combinedReasonText = 'No reasoning provided.';
 
 
-
     const reasoningPrompt = `
-I bought shares in the following companies. Help me understand why the decisions were good or bad, based on geopolitical events and social sentiment:
+I bought shares in the following companies:
 
 ${responseText}
-for dates refer to this: ${companyList}
-Specifically, tell me:
-- What significant geopolitical events affected these stocks.
-- How sentiment on Reddit and X evolved during this period.
 
-Give concise 2-3 sentence reasoning **for each stock**, labelled clearly.
+Here are their purchase dates and tickers:
 
+${companyList}
 
+You must assume the buying decision happened in the last 6 months. Provide **exact, real-world geopolitical events** and **Reddit/X sentiment trends** that could have impacted each stock.
+
+For each stock, give **exactly one** concise, clear, 2-sentence explanation. No disclaimers. Avoid generic trends. Base reasoning on **recent (last 6 months)** geopolitical and sentiment data only.
+
+Label each stock in this format:
+
+GOOGL:
+- Reasoning here
+
+Be deterministic, confident, and specific. Limit the total response to 100 words. Creativity is allowed **only if it enhances accuracy.**
 `.trim();
+
 
     const reasonRes = await axios.post(
         "https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateContent",
         {
             contents: [{ parts: [{ text: reasoningPrompt }] }],
-            generationConfig: { temperature: 0.4, maxOutputTokens: 100 },
+            generationConfig: { temperature: 0.2, maxOutputTokens: 100 },
         },
         { headers: { "Content-Type": "application/json" }, params: { key: GEMINI_API_KEY } }
     );

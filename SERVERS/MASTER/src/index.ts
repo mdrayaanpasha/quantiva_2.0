@@ -21,6 +21,7 @@ const app = express();
 app.use(express.json());
 app.use(cors())
 const PORT = 3000;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
 
 let channel: any; // RabbitMQ channel
 
@@ -50,6 +51,68 @@ app.post('/send', async (req: Request, res: Response): Promise<any> => {
 
     console.log(`📤 Sent: ${message}`);
     return res.send('Message sent to queue');
+});
+
+
+app.post("/portfolio-chat", async (req: Request, res: Response): Promise<any> => {
+    try {
+        const { message, question } = req.body;
+        if (!message || typeof message !== 'string') {
+            return res.status(400).send("Message is required and must be a string");
+        }
+
+        // Construct the prompt cleanly
+        const reasoningPrompt = `
+You are a professional financial analyst.
+
+Using the portfolio summary below, answer the user's question with a concise, evidence-based explanation (maximum 200 words). 
+Your response must:
+- Directly address the user's question.
+- Reference relevant data points or trends from the portfolio summary and real world at the moment.
+- Maintain an objective and analytical tone.
+- Avoid redundancy.
+- use at most 3 emojis in a repsonse, while maintaining a professional tone.
+
+Portfolio Summary:
+${message}
+
+User Question:
+${question}
+`.trim();
+
+
+        const reasonRes = await axios.post(
+            "https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateContent",
+            {
+                contents: [
+                    {
+                        role: "user",
+                        parts: [{ text: reasoningPrompt }]
+                    }
+                ],
+                generationConfig: {
+                    temperature: 0.2,
+                    maxOutputTokens: 300
+                }
+            },
+            {
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                params: {
+                    key: GEMINI_API_KEY
+                }
+            }
+        );
+
+        const finalText = reasonRes.data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "No reasoning provided.";
+        console.log(`🧠 Gemini Reasoning:\n${finalText}`);
+        return res.status(200).json({ text: finalText });
+
+    } catch (error: any) {
+        console.error("❌ Error in /portfolio-chat:", error?.response?.data || error.message);
+        return res.status(500).send("Internal Server Error");
+    }
 });
 
 // = = = = = STOCK API ENDPOINT 📈 = = = = =
