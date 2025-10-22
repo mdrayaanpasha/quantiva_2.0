@@ -20,6 +20,56 @@ In short: it’s smarter, faster, modular, and actually behaves like a system bu
 
 Quantiva 2.0 consists of multiple independently running servers — each designed to perform a specialized analysis — coordinated through message queues and aggregated by a master node.
 
+```mermaid
+graph TD
+    subgraph User
+        UI(React Frontend)
+    end
+
+    subgraph Master Node
+        Master(Master Server)
+        Cache[(Redis Cache)]
+    end
+
+    subgraph Message Queue
+        MQ([RabbitMQ])
+    end
+
+    subgraph Strategy Servers
+        S1(🧮 Regression Server)
+        S2(📊 Strategy 1 Server)
+        S3(📉 Strategy 2 Server)
+        S4(🌍 Geo-Politics Server)
+    end
+
+    subgraph AI
+        AI_API(🤖 Gemini API)
+    end
+
+    subgraph Database
+        DB[(PostgreSQL)]
+    end
+
+    UI -- HTTP Request --> Master
+    Master -- Publishes Job --> MQ
+    MQ -- Distributes Tasks --> S1
+    MQ -- Distributes Tasks --> S2
+    MQ -- Distributes Tasks --> S3
+    MQ -- Distributes Tasks --> S4
+
+    S1 --> DB
+    S4 -- Calls --> AI_API
+    
+    S1 -- Pushes Result --> MQ
+    S2 -- Pushes Result --> MQ
+    S3 -- Pushes Result --> MQ
+    S4 -- Pushes Result --> MQ
+
+    MQ -- Sends Results --> Master
+    Master -- Stores in --> Cache
+    Master -- Sends Report --> UI
+```
+
 | Server | Function | Core Tech |
 |--------|-----------|-----------|
 | 🧮 **Regression Server** | Runs linear regression analysis on historical price data | Node.js, Prisma ORM |
@@ -155,4 +205,5 @@ AMZN weakened amid logistics and labor headwinds.
 ---
 
 **Quantiva 2.0** — where data meets design, and every server thinks it’s the smartest one.
+
 
