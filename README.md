@@ -1,11 +1,11 @@
 
-# ⚡ Quantiva 2.0
+# 💸 Quantiva 2.0
 
 ### Distributed AI-Driven Portfolio Analysis System
 
 > "If Quantiva 1.0 was a bright idea, v2.0 is that idea with industrial-grade infrastructure and message queues."
 
-## 🚀 The Engineering Challenge
+## 🤓 The Engineering Challenge
 
 The goal was to evolve a monolithic market analysis tool into a **distributed microservices ecosystem**. In this version, heavy financial computations and AI-driven sentiment analysis are parallelized across independent servers, orchestrated by a message broker.
 
@@ -95,4 +95,5 @@ cd CLIENT/app && npm run dev
 
   <img width="400" src="https://github.com/user-attachments/assets/cae7e36b-de74-43d2-9fd1-1e563e2ec00f" alt="Quantiva Overview Diagram 4"/>
 </p>
+
 
