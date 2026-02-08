@@ -3,7 +3,7 @@
 
 ### Distributed AI-Driven Portfolio Analysis System
 
-> "If Quantiva 1.0 was a bright idea, v2.0 is that idea with industrial-grade infrastructure and message queues."
+> "If Quantiva 1.0 was a bright idea, v2.0 is that idea with industrial-grade infrastructure... here we also analyze social media data, geo-politics to help you understand your portfolio better then you could ever imagine!!"
 
 ## 🤓 The Engineering Challenge
 
@@ -95,5 +95,6 @@ cd CLIENT/app && npm run dev
 
   <img width="400" src="https://github.com/user-attachments/assets/cae7e36b-de74-43d2-9fd1-1e563e2ec00f" alt="Quantiva Overview Diagram 4"/>
 </p>
+
 
 
